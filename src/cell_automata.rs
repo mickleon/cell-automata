@@ -34,7 +34,7 @@ pub static NEUMANN_NEIGHBOURHOOD_1: [(i8, i8); 4] = [
 #[derive(Clone)]
 /// Cell of cellular automaton
 pub struct Cell {
-    alive: bool,
+    pub alive: bool,
 }
 
 impl fmt::Display for Cell {
@@ -66,34 +66,47 @@ impl Rule for ConwayRule {
 }
 
 /// Cellular automaton with in size of `width * height`
+#[derive(Default)]
 pub struct CellAutomaton<R: Rule> {
     pub generation: u64,
-    pub width: usize,
-    pub height: usize,
+    pub width: u32,
+    pub height: u32,
     pub grid: Vec<Cell>,
     rule: R,
 }
 
+impl Default for CellAutomaton<ConwayRule> {
+    fn default() -> CellAutomaton<ConwayRule> {
+        CellAutomaton::<ConwayRule>::with_blank(200, 200, ConwayRule)
+    }
+}
+
+impl Default for CellAutomaton<CustomRule> {
+    fn default() -> CellAutomaton<CustomRule> {
+        let rule: CustomRule = CustomRule {
+            neighbourhood: &MOORE_NEIGHBOURHOOD_1,
+            born: &[3],
+            survive: &[2, 3],
+        };
+        CellAutomaton::<CustomRule>::with_blank(200, 200, rule)
+    }
+}
+
 impl<R: Rule> CellAutomaton<R> {
     /// Returns an automaton with random distribution of live cells with probability `p`.
-    pub fn from_random(width: usize, height: usize, p: f64, rule: R) -> Self {
-        let grid = (0..(width * height))
-            .map(|_| Cell {
-                alive: rand::random_bool(p),
-            })
-            .collect();
-        CellAutomaton {
-            generation: 0,
-            width,
-            height,
-            grid,
-            rule,
-        }
+    pub fn with_random(mut self, p: f64) -> Self {
+        self.grid.iter_mut().for_each(|x: &mut Cell| {
+            x.alive = rand::random_bool(p);
+        });
+        self
     }
 
     /// Returns an automaton with all dead cells.
-    pub fn from_blank(width: usize, height: usize, rule: R) -> Self {
-        let grid = Vec::from_iter(iter::repeat_n(Cell { alive: false }, width * height));
+    pub fn with_blank(width: u32, height: u32, rule: R) -> Self {
+        let grid = Vec::from_iter(iter::repeat_n(
+            Cell { alive: false },
+            (width * height) as usize,
+        ));
         CellAutomaton {
             generation: 0,
             width,
@@ -109,18 +122,18 @@ impl<R: Rule> CellAutomaton<R> {
     /// let mut game_of_life = CellAutomaton::from_blank(10, 10, ConwayRule);
     /// assert!(!game_of_life.next_gen());
     pub fn next_gen(&mut self) -> bool {
-        let mut changes = Vec::with_capacity(self.width * self.height / 4);
+        let mut changes = Vec::with_capacity((self.width * self.height) as usize / 4);
         let neighbourhood = self.rule.neighbourhood();
 
         for x in 0..self.width {
             for y in 0..self.height {
-                let idx = self.width * y + x;
+                let idx = (self.width * y + x) as usize;
                 let mut neighbours_alive = 0;
 
                 for &(dx, dy) in neighbourhood {
-                    let nx = (x as i32 + dx as i32).rem_euclid(self.width as i32) as usize;
-                    let ny = (y as i32 + dy as i32).rem_euclid(self.height as i32) as usize;
-                    if self.grid[self.width * ny + nx].alive {
+                    let nx = (x as i32 + dx as i32).rem_euclid(self.width as i32) as u32;
+                    let ny = (y as i32 + dy as i32).rem_euclid(self.height as i32) as u32;
+                    if self.get(nx, ny).alive {
                         neighbours_alive += 1;
                     }
                 }
@@ -144,12 +157,19 @@ impl<R: Rule> CellAutomaton<R> {
             true
         }
     }
+
+    pub fn get(&self, x: u32, y: u32) -> &Cell {
+        &self.grid[(y * self.width + x) as usize]
+    }
+    pub fn get_mut(&mut self, x: u32, y: u32) -> &mut Cell {
+        &mut self.grid[(y * self.width + x) as usize]
+    }
 }
 
 impl<R: Rule> fmt::Display for CellAutomaton<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for counter in 0..(self.height * self.width) {
-            write!(f, "{}", self.grid[counter])?;
+            write!(f, "{}", self.grid[counter as usize])?;
             if counter % self.width == self.width - 1 {
                 writeln!(f)?;
             }
