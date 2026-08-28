@@ -10,7 +10,7 @@ use winit::window::{Window, WindowId};
 
 use crate::cell_automata::{CellAutomaton, ConwayRule};
 
-const TARGET_FPS: f64 = 30.0;
+const GENERATION_PER_SECONDS: f64 = 30.0;
 const BACKGROUND_COLOR: u32 = 0x000000;
 const ALIVE_COLOR: u32 = 0xffffff;
 const DEAD_COLOR: u32 = 0x000000;
@@ -22,6 +22,7 @@ const ZOOM_STEP: f32 = 1.2;
 pub struct App {
     window: Option<Rc<Window>>,
     surface: Option<Surface<Rc<Window>, Rc<Window>>>,
+    next_frame_time: Instant,
     canvas: Canvas,
 
     dragging: bool,
@@ -164,6 +165,7 @@ impl Default for App {
         Self {
             window: Default::default(),
             surface: Default::default(),
+            next_frame_time: Instant::now(),
             canvas: Canvas {
                 automaton: CellAutomaton::default().with_random(1.0 / 3.0),
                 field_left_top_x: 0,
@@ -286,13 +288,17 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if let Some(window) = &self.window {
-            window.request_redraw();
+        let now = Instant::now();
+
+        if now >= self.next_frame_time {
             self.canvas.automaton.next_gen();
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+            self.next_frame_time = now + Duration::from_secs_f64(1.0 / GENERATION_PER_SECONDS);
         }
 
-        let next_frame_time = Instant::now() + Duration::from_secs_f64(1.0 / TARGET_FPS);
-        event_loop.set_control_flow(ControlFlow::WaitUntil(next_frame_time));
+        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_time));
     }
 }
 
