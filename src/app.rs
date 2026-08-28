@@ -39,12 +39,14 @@ struct Canvas {
     y_end: u32,
     width: u32,
     height: u32,
+
+    x_cell_map: Vec<u32>,
+    y_cell_map: Vec<u32>,
 }
 
 impl Canvas {
     /// Size (in pixels) that the automaton field occupies on screen at the
-    /// current scale. Kept as a single helper so it's computed the same way
-    /// everywhere instead of being duplicated across methods.
+    /// current scale.
     fn dest_size(&self) -> (f32, f32) {
         (
             (self.automaton.width as f32 * self.field_scale).ceil(),
@@ -70,10 +72,7 @@ impl Canvas {
 
     /// Recomputes the visible drawing window (`x_start..x_end`,
     /// `y_start..y_end`) from the current field position/scale and the
-    /// window size. Clamping is done in `i32` before the cast to `u32`, so a
-    /// field that is fully or partially off-screen (including when
-    /// `field_left_top_x/y` is negative) never produces a wrapped/huge
-    /// `u32` value.
+    /// window size.
     fn recalc_bounds(&mut self) {
         let (dest_width, dest_height) = self.dest_size();
 
@@ -84,9 +83,33 @@ impl Canvas {
 
         (self.x_start, self.y_start) = (x0 as u32, y0 as u32);
         (self.x_end, self.y_end) = (x1 as u32, y1 as u32);
+
+        self.rebuild_maps();
     }
 
-    /// Shifts the field by (dx, dy) screen pixels, e.g. while dragging.
+    /// Recomputes `x_cell_map`/`y_cell_map` for the current visible range
+    /// (`x_start..x_end`, `y_start..y_end`).
+    fn rebuild_maps(&mut self) {
+        let max_cell_x = self.automaton.width.saturating_sub(1);
+        let max_cell_y = self.automaton.height.saturating_sub(1);
+
+        self.x_cell_map.clear();
+        self.x_cell_map
+            .extend((self.x_start..self.x_end).map(|pixel_x| {
+                let cell =
+                    ((pixel_x as i32 - self.field_left_top_x) as f32 / self.field_scale) as u32;
+                cell.min(max_cell_x)
+            }));
+
+        self.y_cell_map.clear();
+        self.y_cell_map
+            .extend((self.y_start..self.y_end).map(|pixel_y| {
+                let cell =
+                    ((pixel_y as i32 - self.field_left_top_y) as f32 / self.field_scale) as u32;
+                cell.min(max_cell_y)
+            }));
+    }
+
     fn pan(&mut self, dx: f32, dy: f32) {
         self.field_left_top_x += dx.round() as i32;
         self.field_left_top_y += dy.round() as i32;
@@ -104,6 +127,8 @@ impl Canvas {
             return;
         }
 
+        // Position of the cursor relative to the field's top-left corner,
+        // before rescaling.
         let rel_x = cursor_x - self.field_left_top_x as f32;
         let rel_y = cursor_y - self.field_left_top_y as f32;
         let scale_ratio = new_scale / old_scale;
@@ -115,32 +140,20 @@ impl Canvas {
         self.recalc_bounds();
     }
 
-    fn pixel_color(&self, pixel_x: i32, pixel_y: i32) -> Option<u32> {
-        let cell_x = ((pixel_x - self.field_left_top_x) as f32 / self.field_scale) as i32;
-        let cell_y = ((pixel_y - self.field_left_top_y) as f32 / self.field_scale) as i32;
-
-        if cell_x < 0 || cell_y < 0 {
-            return None;
-        }
-        let (src_x, src_y) = (cell_x as u32, cell_y as u32);
-
-        if src_x >= self.automaton.width || src_y >= self.automaton.height {
-            return None;
-        }
-
-        Some(if self.automaton.get(src_x, src_y).alive {
-            ALIVE_COLOR
-        } else {
-            DEAD_COLOR
-        })
-    }
-
+    /// Draws the automaton using the precomputed `x_cell_map`/`y_cell_map`.
     fn draw_automata(&self, buffer: &mut softbuffer::Buffer<'_, Rc<Window>, Rc<Window>>) {
-        for pixel_y in self.y_start..self.y_end {
-            for pixel_x in self.x_start..self.x_end {
-                if let Some(color) = self.pixel_color(pixel_x as i32, pixel_y as i32) {
-                    buffer[((pixel_y * self.width) + pixel_x) as usize] = color;
-                }
+        for (row, &cell_y) in self.y_cell_map.iter().enumerate() {
+            let pixel_y = self.y_start + row as u32;
+
+            for (idx, &cell_x) in
+                ((pixel_y * self.width + self.x_start) as usize..).zip(self.x_cell_map.iter())
+            {
+                let color = if self.automaton.get(cell_x, cell_y).alive {
+                    ALIVE_COLOR
+                } else {
+                    DEAD_COLOR
+                };
+                buffer[idx] = color;
             }
         }
     }
@@ -162,6 +175,8 @@ impl Default for App {
                 y_end: 0,
                 width: 0,
                 height: 0,
+                x_cell_map: Vec::new(),
+                y_cell_map: Vec::new(),
             },
             dragging: false,
             last_cursor_pos: None,
