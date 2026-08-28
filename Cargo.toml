@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 rand = "0.10.2"
+softbuffer = "0.4.8"
+winit = "0.30.13"

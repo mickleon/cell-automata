@@ -1,15 +1,13 @@
-use std::{thread::sleep, time::Duration};
+use winit::event_loop::{ControlFlow, EventLoop};
 
-use cell_automata::{CellAutomaton, ConwayRule};
+use cell_automata::app::App;
 
 fn main() {
-    let mut game_of_life = CellAutomaton::from_random(20, 15, 1.0 / 3.0, ConwayRule);
+    let event_loop = EventLoop::new().expect("Couldn't create event loop");
+    event_loop.set_control_flow(ControlFlow::Poll);
 
-    loop {
-        sleep(Duration::from_millis(100));
-        print!("{}", game_of_life);
-        if !game_of_life.next_gen() {
-            break;
-        }
-    }
+    let mut app = App::default();
+    event_loop
+        .run_app(&mut app)
+        .expect("Application execution error");
 }
