@@ -12,8 +12,8 @@ use crate::cell_automata::{CellAutomaton, ConwayRule};
 
 const GENERATION_PER_SECONDS: f64 = 30.0;
 const BACKGROUND_COLOR: u32 = 0x000000;
-const ALIVE_COLOR: u32 = 0xffffff;
-const DEAD_COLOR: u32 = 0x000000;
+const DEAD_COLOR: u32 = 0xffffff;
+const ALIVE_COLOR: u32 = 0x000000;
 
 const MIN_SCALE: f32 = 0.1;
 const MAX_SCALE: f32 = 50.0;

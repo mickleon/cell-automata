@@ -1,4 +1,4 @@
-#![doc = include_str!("../README.md")]
+#![doc = include_str!("../docs/CELL_AUTOMATA.md")]
 use std::{fmt, iter};
 
 /// Moore neighbourhood of range 1
