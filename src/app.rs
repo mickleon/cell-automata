@@ -6,11 +6,13 @@ use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 use crate::cell_automata::{CellAutomaton, ConwayRule};
 
-const GENERATION_PER_SECONDS: f64 = 30.0;
+const GENERATION_SPEED: f32 = 30.0;
+const GENERATION_SPEED_FACTOR: [f32; 6] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0];
 const BACKGROUND_COLOR: u32 = 0x000000;
 const DEAD_COLOR: u32 = 0xffffff;
 const ALIVE_COLOR: u32 = 0x000000;
@@ -19,18 +21,9 @@ const MIN_SCALE: f32 = 0.1;
 const MAX_SCALE: f32 = 50.0;
 const ZOOM_STEP: f32 = 1.2;
 
-pub struct App {
-    window: Option<Rc<Window>>,
-    surface: Option<Surface<Rc<Window>, Rc<Window>>>,
-    next_frame_time: Instant,
-    canvas: Canvas,
-
-    dragging: bool,
-    last_cursor_pos: Option<(f32, f32)>,
-}
-
 struct Canvas {
     automaton: CellAutomaton<ConwayRule>,
+    speed_idx: i32,
     field_left_top_x: i32,
     field_left_top_y: i32,
     field_scale: f32,
@@ -45,6 +38,26 @@ struct Canvas {
     y_cell_map: Vec<u32>,
 }
 
+impl Default for Canvas {
+    fn default() -> Self {
+        Canvas {
+            automaton: CellAutomaton::default().with_random(1.0 / 3.0),
+            speed_idx: 2,
+            field_left_top_x: 0,
+            field_left_top_y: 0,
+            field_scale: 3.0,
+            x_start: 0,
+            x_end: 0,
+            y_start: 0,
+            y_end: 0,
+            width: 0,
+            height: 0,
+            x_cell_map: Vec::new(),
+            y_cell_map: Vec::new(),
+        }
+    }
+}
+
 impl Canvas {
     /// Size (in pixels) that the automaton field occupies on screen at the
     /// current scale.
@@ -55,7 +68,9 @@ impl Canvas {
         )
     }
 
-    fn init(&mut self, width: u32, height: u32) {
+    fn reset_transform(&mut self, width: u32, height: u32) {
+        self.field_scale = (width as f32 / self.automaton.width as f32)
+            .min(height as f32 / self.automaton.height as f32);
         let (dest_width, dest_height) = self.dest_size();
         let center_x = width as f32 / 2.0;
         let center_y = height as f32 / 2.0;
@@ -75,7 +90,10 @@ impl Canvas {
     /// `y_start..y_end`) from the current field position/scale and the
     /// window size.
     fn recalc_bounds(&mut self) {
-        let (dest_width, dest_height) = self.dest_size();
+        let (dest_width, dest_height) = (
+            (self.automaton.width as f32 * self.field_scale).ceil(),
+            (self.automaton.height as f32 * self.field_scale).ceil(),
+        );
 
         let x0 = self.field_left_top_x.clamp(0, self.width as i32);
         let y0 = self.field_left_top_y.clamp(0, self.height as i32);
@@ -91,23 +109,16 @@ impl Canvas {
     /// Recomputes `x_cell_map`/`y_cell_map` for the current visible range
     /// (`x_start..x_end`, `y_start..y_end`).
     fn rebuild_maps(&mut self) {
-        let max_cell_x = self.automaton.width.saturating_sub(1);
-        let max_cell_y = self.automaton.height.saturating_sub(1);
-
         self.x_cell_map.clear();
         self.x_cell_map
             .extend((self.x_start..self.x_end).map(|pixel_x| {
-                let cell =
-                    ((pixel_x as i32 - self.field_left_top_x) as f32 / self.field_scale) as u32;
-                cell.min(max_cell_x)
+                ((pixel_x as i32 - self.field_left_top_x) as f32 / self.field_scale) as u32
             }));
 
         self.y_cell_map.clear();
         self.y_cell_map
             .extend((self.y_start..self.y_end).map(|pixel_y| {
-                let cell =
-                    ((pixel_y as i32 - self.field_left_top_y) as f32 / self.field_scale) as u32;
-                cell.min(max_cell_y)
+                ((pixel_y as i32 - self.field_left_top_y) as f32 / self.field_scale) as u32
             }));
     }
 
@@ -119,8 +130,7 @@ impl Canvas {
 
     /// Multiplies the scale by `factor` (>1 zooms in, <1 zooms out), keeping
     /// the point under `(cursor_x, cursor_y)` (in screen coordinates) fixed
-    /// on screen, so zooming feels anchored to the mouse instead of the
-    /// window corner.
+    /// on screen.
     fn zoom(&mut self, factor: f32, cursor_x: f32, cursor_y: f32) {
         let old_scale = self.field_scale;
         let new_scale = (old_scale * factor).clamp(MIN_SCALE, MAX_SCALE);
@@ -160,28 +170,27 @@ impl Canvas {
     }
 }
 
+pub struct App {
+    window: Option<Rc<Window>>,
+    surface: Option<Surface<Rc<Window>, Rc<Window>>>,
+    next_frame_time: Instant,
+    canvas: Canvas,
+
+    dragging: bool,
+    last_cursor_pos: Option<(f32, f32)>,
+    paused: bool,
+}
+
 impl Default for App {
     fn default() -> Self {
         Self {
             window: Default::default(),
             surface: Default::default(),
             next_frame_time: Instant::now(),
-            canvas: Canvas {
-                automaton: CellAutomaton::default().with_random(1.0 / 3.0),
-                field_left_top_x: 0,
-                field_left_top_y: 0,
-                field_scale: 3.0,
-                x_start: 0,
-                x_end: 0,
-                y_start: 0,
-                y_end: 0,
-                width: 0,
-                height: 0,
-                x_cell_map: Vec::new(),
-                y_cell_map: Vec::new(),
-            },
+            canvas: Default::default(),
             dragging: false,
             last_cursor_pos: None,
+            paused: false,
         }
     }
 }
@@ -198,7 +207,7 @@ impl ApplicationHandler for App {
 
         let context = Context::new(window.clone()).expect("Couldn't create a Context");
         let surface = Surface::new(&context, window.clone()).expect("Couldn't create a Surface");
-        self.canvas.init(
+        self.canvas.reset_transform(
             surface.window().inner_size().width,
             surface.window().inner_size().height,
         );
@@ -280,6 +289,34 @@ impl ApplicationHandler for App {
                     }
                 }
             }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let PhysicalKey::Code(code) = event.physical_key
+                    && event.state.is_pressed()
+                    && !event.repeat
+                {
+                    match code {
+                        KeyCode::KeyP => {
+                            self.paused = !self.paused;
+                        }
+                        KeyCode::KeyR => {
+                            self.canvas
+                                .reset_transform(self.canvas.width, self.canvas.height);
+                        }
+                        KeyCode::ArrowUp => {
+                            self.canvas.speed_idx += 1;
+                            self.canvas.speed_idx = self
+                                .canvas
+                                .speed_idx
+                                .min(GENERATION_SPEED_FACTOR.len() as i32 - 1);
+                        }
+                        KeyCode::ArrowDown => {
+                            self.canvas.speed_idx -= 1;
+                            self.canvas.speed_idx = self.canvas.speed_idx.max(0);
+                        }
+                        _ => {}
+                    }
+                }
+            }
             WindowEvent::RedrawRequested => {
                 self.draw();
             }
@@ -290,12 +327,16 @@ impl ApplicationHandler for App {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
 
-        if now >= self.next_frame_time {
+        if !self.paused && now >= self.next_frame_time {
             self.canvas.automaton.next_gen();
             if let Some(window) = &self.window {
                 window.request_redraw();
             }
-            self.next_frame_time = now + Duration::from_secs_f64(1.0 / GENERATION_PER_SECONDS);
+            self.next_frame_time = now
+                + Duration::from_secs_f32(
+                    1.0 / (GENERATION_SPEED
+                        * GENERATION_SPEED_FACTOR[self.canvas.speed_idx as usize]),
+                );
         }
 
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_time));
