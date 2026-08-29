@@ -203,11 +203,15 @@ impl ApplicationHandler for App {
                         }
                         // Arrow Up
                         KeyCode::ArrowUp => {
-                            self.canvas.speed.next();
+                            if let Some(s) = self.canvas.speed.next() {
+                                println!("Speed: {}x", s);
+                            }
                         }
                         // Arrow Down
                         KeyCode::ArrowDown => {
-                            self.canvas.speed.prev();
+                            if let Some(s) = self.canvas.speed.prev() {
+                                println!("Speed: {}x", s);
+                            }
                         }
                         _ => {}
                     }
@@ -224,7 +228,7 @@ impl ApplicationHandler for App {
         let now = Instant::now();
 
         if !self.canvas.sim_paused && now >= self.next_frame_time {
-            if !self.canvas.automaton.next_gen() {
+            if !self.canvas.automaton.step() {
                 self.canvas.sim_pause();
             }
             if let Some(window) = &self.window {

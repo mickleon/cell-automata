@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use winit::window::Window;
 
-use crate::cell_automata::{Cell, CellAutomaton, ConwayRule};
+use crate::cell_automata::{CellAutomaton, ConwayRule};
 use crate::config::*;
 use crate::utils::BidirectionalIter;
 
@@ -29,14 +29,14 @@ pub struct Canvas {
     x_end: u32,
     y_start: u32,
     y_end: u32,
-    x_cell_map: Vec<u32>,
-    y_cell_map: Vec<u32>,
+    x_cell_map: Vec<usize>,
+    y_cell_map: Vec<usize>,
 }
 
 impl Default for Canvas {
     fn default() -> Self {
         Canvas {
-            automaton: CellAutomaton::default(),
+            automaton: CellAutomaton::new(200, 200, ConwayRule),
             speed: BidirectionalIter::new(&GENERATION_SPEED_FACTOR).with_pos(2),
             sim_paused: false,
             field_left_top_x: 0,
@@ -111,22 +111,19 @@ impl Canvas {
         self.x_cell_map.clear();
         self.x_cell_map
             .extend((self.x_start..self.x_end).map(|pixel_x| {
-                ((pixel_x as i32 - self.field_left_top_x) as f32 / self.field_scale) as u32
+                ((pixel_x as i32 - self.field_left_top_x) as f32 / self.field_scale) as usize
             }));
 
         self.y_cell_map.clear();
         self.y_cell_map
             .extend((self.y_start..self.y_end).map(|pixel_y| {
-                ((pixel_y as i32 - self.field_left_top_y) as f32 / self.field_scale) as u32
+                ((pixel_y as i32 - self.field_left_top_y) as f32 / self.field_scale) as usize
             }));
     }
 
     /// Randomize cells
     pub fn randomize(&mut self) {
         self.automaton.randomize(1.0 / 3.0);
-        if self.sim_paused {
-            self.sim_resume();
-        }
     }
 
     /// Маке all the cells dead
@@ -182,7 +179,7 @@ impl Canvas {
     }
 
     /// Return target cell in automaton by displayed pixel coordinate
-    fn get_cell_mut(&mut self, pixel_x: f32, pixel_y: f32) -> Option<&mut Cell> {
+    fn get(&mut self, pixel_x: f32, pixel_y: f32) -> Option<(usize, usize)> {
         let pixel_x = pixel_x as u32;
         let pixel_y = pixel_y as u32;
         if self.x_start <= pixel_x
@@ -193,20 +190,21 @@ impl Canvas {
             let cell_x = self.x_cell_map[(pixel_x - self.x_start) as usize];
             let cell_y = self.y_cell_map[(pixel_y - self.y_start) as usize];
 
-            return Some(self.automaton.get_mut(cell_x, cell_y));
+            return Some((cell_x, cell_y));
         }
         None
     }
 
     /// Enamble drawing mode
     pub fn start_draw(&mut self, pixel_x: f32, pixel_y: f32) {
-        self.drawing = match self.get_cell_mut(pixel_x, pixel_y) {
-            Some(cell) => {
+        self.drawing = match self.get(pixel_x, pixel_y) {
+            Some((x, y)) => {
+                let cell = self.automaton.get(x, y);
                 if cell.alive {
-                    cell.alive = false;
+                    self.automaton.set(false, x, y);
                     DrawCell::Dead
                 } else {
-                    cell.alive = true;
+                    self.automaton.set(false, x, y);
                     DrawCell::Alive
                 }
             }
@@ -221,9 +219,9 @@ impl Canvas {
             DrawCell::Dead => Some(false),
             DrawCell::False => None,
         };
-        let cell = self.get_cell_mut(pixel_x, pixel_y);
-        if let Some(cell) = cell {
-            cell.alive = status.unwrap();
+        let cell = self.get(pixel_x, pixel_y);
+        if let Some((x, y)) = cell {
+            self.automaton.set(status.unwrap(), x, y);
         };
     }
 
