@@ -6,10 +6,12 @@ use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
-use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-use crate::cell_automata::{CellAutomaton, ConwayRule};
+use crate::app::DrawCell::False;
+use crate::cell_automata::{Cell, CellAutomaton, ConwayRule};
+use crate::utils::BidirectionalIter;
 
 const GENERATION_SPEED: f32 = 30.0;
 const GENERATION_SPEED_FACTOR: [f32; 6] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0];
@@ -21,9 +23,17 @@ const MIN_SCALE: f32 = 0.1;
 const MAX_SCALE: f32 = 50.0;
 const ZOOM_STEP: f32 = 1.2;
 
+enum DrawCell {
+    Alive,
+    Dead,
+    False,
+}
+
 struct Canvas {
     automaton: CellAutomaton<ConwayRule>,
-    speed_idx: i32,
+    speed: BidirectionalIter<'static, f32>,
+    sim_paused: bool,
+
     field_left_top_x: i32,
     field_left_top_y: i32,
     field_scale: f32,
@@ -33,16 +43,18 @@ struct Canvas {
     y_end: u32,
     width: u32,
     height: u32,
-
     x_cell_map: Vec<u32>,
     y_cell_map: Vec<u32>,
+
+    drawing: DrawCell,
 }
 
 impl Default for Canvas {
     fn default() -> Self {
         Canvas {
-            automaton: CellAutomaton::default().with_random(1.0 / 3.0),
-            speed_idx: 2,
+            automaton: CellAutomaton::default(),
+            speed: BidirectionalIter::new(&GENERATION_SPEED_FACTOR).with_pos(2),
+            sim_paused: false,
             field_left_top_x: 0,
             field_left_top_y: 0,
             field_scale: 3.0,
@@ -54,6 +66,7 @@ impl Default for Canvas {
             height: 0,
             x_cell_map: Vec::new(),
             y_cell_map: Vec::new(),
+            drawing: DrawCell::False,
         }
     }
 }
@@ -122,6 +135,17 @@ impl Canvas {
             }));
     }
 
+    fn randomize(&mut self) {
+        self.automaton.randomize(1.0 / 3.0);
+        if self.sim_paused {
+            self.sim_resume();
+        }
+    }
+
+    fn clear(&mut self) {
+        self.automaton.clear();
+    }
+
     fn pan(&mut self, dx: f32, dy: f32) {
         self.field_left_top_x += dx.round() as i32;
         self.field_left_top_y += dy.round() as i32;
@@ -168,6 +192,59 @@ impl Canvas {
             }
         }
     }
+
+    fn get_cell_mut(&mut self, pixel_x: f32, pixel_y: f32) -> Option<&mut Cell> {
+        let pixel_x = pixel_x as u32;
+        let pixel_y = pixel_y as u32;
+        if self.x_start <= pixel_x
+            && pixel_x <= self.x_end
+            && self.y_start <= pixel_y
+            && pixel_y <= self.y_end
+        {
+            let cell_x = self.x_cell_map[(pixel_x - self.x_start) as usize];
+            let cell_y = self.y_cell_map[(pixel_y - self.y_start) as usize];
+
+            return Some(self.automaton.get_mut(cell_x, cell_y));
+        }
+        None
+    }
+
+    fn start_draw(&mut self, pixel_x: f32, pixel_y: f32) {
+        self.drawing = match self.get_cell_mut(pixel_x, pixel_y) {
+            Some(cell) => {
+                if cell.alive {
+                    cell.alive = false;
+                    DrawCell::Dead
+                } else {
+                    cell.alive = true;
+                    DrawCell::Alive
+                }
+            }
+            None => DrawCell::False,
+        };
+    }
+
+    fn draw_cell(&mut self, pixel_x: f32, pixel_y: f32) {
+        let status = match self.drawing {
+            DrawCell::Alive => Some(true),
+            DrawCell::Dead => Some(false),
+            False => None,
+        };
+        let cell = self.get_cell_mut(pixel_x, pixel_y);
+        if let Some(cell) = cell {
+            cell.alive = status.unwrap();
+        };
+    }
+
+    fn sim_pause(&mut self) {
+        self.sim_paused = true;
+        println!("Paused");
+    }
+
+    fn sim_resume(&mut self) {
+        self.sim_paused = false;
+        println!("Resumed");
+    }
 }
 
 pub struct App {
@@ -178,7 +255,7 @@ pub struct App {
 
     dragging: bool,
     last_cursor_pos: Option<(f32, f32)>,
-    paused: bool,
+    modifiers: ModifiersState,
 }
 
 impl Default for App {
@@ -190,7 +267,7 @@ impl Default for App {
             canvas: Default::default(),
             dragging: false,
             last_cursor_pos: None,
-            paused: false,
+            modifiers: ModifiersState::default(),
         }
     }
 }
@@ -214,6 +291,7 @@ impl ApplicationHandler for App {
 
         self.window = Some(window);
         self.surface = Some(surface);
+        self.canvas.randomize();
     }
 
     fn window_event(
@@ -242,6 +320,14 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let (x, y) = (position.x as f32, position.y as f32);
+                let mut redraw: bool = false;
+                match self.canvas.drawing {
+                    False => {}
+                    _ => {
+                        self.canvas.draw_cell(x, y);
+                        redraw = true;
+                    }
+                }
 
                 if self.dragging
                     && let Some((last_x, last_y)) = self.last_cursor_pos
@@ -249,10 +335,11 @@ impl ApplicationHandler for App {
                     let (dx, dy) = (x - last_x, y - last_y);
                     if dx != 0.0 || dy != 0.0 {
                         self.canvas.pan(dx, dy);
-                        if let Some(window) = &self.window {
-                            window.request_redraw();
-                        }
+                        redraw = true;
                     }
+                }
+                if redraw && let Some(window) = &self.window {
+                    window.request_redraw();
                 }
 
                 self.last_cursor_pos = Some((x, y));
@@ -264,6 +351,23 @@ impl ApplicationHandler for App {
             } => {
                 self.dragging = state == ElementState::Pressed;
             }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Right,
+                ..
+            } => match state {
+                ElementState::Pressed => {
+                    if let Some((x, y)) = self.last_cursor_pos {
+                        self.canvas.start_draw(x, y);
+                    }
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                ElementState::Released => {
+                    self.canvas.drawing = DrawCell::False;
+                }
+            },
             WindowEvent::MouseWheel { delta, .. } => {
                 let scroll_y = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
@@ -289,6 +393,9 @@ impl ApplicationHandler for App {
                     }
                 }
             }
+            WindowEvent::ModifiersChanged(new_mods) => {
+                self.modifiers = new_mods.state();
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key
                     && event.state.is_pressed()
@@ -296,22 +403,36 @@ impl ApplicationHandler for App {
                 {
                     match code {
                         KeyCode::KeyP => {
-                            self.paused = !self.paused;
+                            if self.canvas.sim_paused {
+                                self.canvas.sim_resume();
+                            } else {
+                                self.canvas.sim_pause();
+                            }
                         }
                         KeyCode::KeyR => {
-                            self.canvas
-                                .reset_transform(self.canvas.width, self.canvas.height);
+                            if self.modifiers.shift_key() {
+                                self.canvas.randomize();
+                            } else {
+                                self.canvas
+                                    .reset_transform(self.canvas.width, self.canvas.height);
+                            }
+                            if let Some(window) = &self.window {
+                                window.request_redraw();
+                            }
+                        }
+                        KeyCode::KeyC => {
+                            if self.modifiers.shift_key() {
+                                self.canvas.clear();
+                            }
+                            if let Some(window) = &self.window {
+                                window.request_redraw();
+                            }
                         }
                         KeyCode::ArrowUp => {
-                            self.canvas.speed_idx += 1;
-                            self.canvas.speed_idx = self
-                                .canvas
-                                .speed_idx
-                                .min(GENERATION_SPEED_FACTOR.len() as i32 - 1);
+                            self.canvas.speed.next();
                         }
                         KeyCode::ArrowDown => {
-                            self.canvas.speed_idx -= 1;
-                            self.canvas.speed_idx = self.canvas.speed_idx.max(0);
+                            self.canvas.speed.prev();
                         }
                         _ => {}
                     }
@@ -327,16 +448,15 @@ impl ApplicationHandler for App {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
 
-        if !self.paused && now >= self.next_frame_time {
-            self.canvas.automaton.next_gen();
+        if !self.canvas.sim_paused && now >= self.next_frame_time {
+            if !self.canvas.automaton.next_gen() {
+                self.canvas.sim_pause();
+            }
             if let Some(window) = &self.window {
                 window.request_redraw();
             }
-            self.next_frame_time = now
-                + Duration::from_secs_f32(
-                    1.0 / (GENERATION_SPEED
-                        * GENERATION_SPEED_FACTOR[self.canvas.speed_idx as usize]),
-                );
+            self.next_frame_time =
+                now + Duration::from_secs_f32(1.0 / (GENERATION_SPEED * *self.canvas.speed.get()));
         }
 
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_time));

@@ -116,6 +116,18 @@ impl<R: Rule> CellAutomaton<R> {
         }
     }
 
+    pub fn randomize(&mut self, p: f64) {
+        self.grid.iter_mut().for_each(|x: &mut Cell| {
+            x.alive = rand::random_bool(p);
+        });
+    }
+
+    pub fn clear(&mut self) {
+        for cell in &mut self.grid {
+            cell.alive = false;
+        }
+    }
+
     /// Simualate an automaton's next generation. Returns a `false` if the automaton has finished working.
     /// ```
     /// # use cell_automata::{CellAutomaton, ConwayRule};
