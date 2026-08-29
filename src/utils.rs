@@ -16,9 +16,9 @@ impl<'a, T> BidirectionalIter<'a, T> {
     }
 
     pub fn next(&mut self) -> Option<&'a T> {
-        if self.pos < self.data.len() {
-            let item = &self.data[self.pos];
+        if self.pos < self.data.len() - 1 {
             self.pos += 1;
+            let item = &self.data[self.pos];
             Some(item)
         } else {
             None
