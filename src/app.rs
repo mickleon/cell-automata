@@ -8,7 +8,7 @@ use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
-use winit::window::{Window, WindowId};
+use winit::window::{CursorIcon, Window, WindowId};
 
 use crate::canvas::{Canvas, DrawCell};
 use crate::config::*;
@@ -118,6 +118,13 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 self.dragging = state == ElementState::Pressed;
+                if let Some(window) = &self.window {
+                    window.set_cursor(if self.dragging {
+                        CursorIcon::Grabbing
+                    } else {
+                        CursorIcon::Default
+                    });
+                }
             }
             // Right mouse key
             WindowEvent::MouseInput {
