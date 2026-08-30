@@ -3,7 +3,7 @@ use std::rc::Rc;
 use log::info;
 use winit::window::Window;
 
-use crate::cell_automata::{CellAutomaton, ConwayRule};
+use crate::cell_automata::{Cell, CellAutomaton, ConwayRule};
 use crate::config::*;
 use crate::utils::BidirectionalIter;
 
@@ -36,7 +36,7 @@ pub struct Canvas {
 
 impl Default for Canvas {
     fn default() -> Self {
-        Canvas {
+        let mut canvas = Canvas {
             automaton: CellAutomaton::new(200, 200, ConwayRule),
             speed: BidirectionalIter::new(&GENERATION_SPEED_FACTOR).with_pos(2),
             sim_paused: false,
@@ -52,7 +52,9 @@ impl Default for Canvas {
             x_cell_map: Vec::new(),
             y_cell_map: Vec::new(),
             drawing: DrawCell::False,
-        }
+        };
+        canvas.randomize();
+        canvas
     }
 }
 
@@ -172,10 +174,9 @@ impl Canvas {
             for (idx, &cell_x) in
                 ((pixel_y * self.width + self.x_start) as usize..).zip(self.x_cell_map.iter())
             {
-                let color = if self.automaton.get(cell_x, cell_y).alive {
-                    ALIVE_COLOR
-                } else {
-                    DEAD_COLOR
+                let color = match self.automaton.get(cell_x, cell_y) {
+                    Cell::Alive => ALIVE_COLOR,
+                    Cell::Dead => DEAD_COLOR,
                 };
                 buffer[idx] = color;
             }
@@ -202,16 +203,16 @@ impl Canvas {
     /// Enamble drawing mode
     pub fn start_draw(&mut self, pixel_x: f32, pixel_y: f32) {
         self.drawing = match self.get(pixel_x, pixel_y) {
-            Some((x, y)) => {
-                let cell = self.automaton.get(x, y);
-                if cell.alive {
-                    self.automaton.set(false, x, y);
+            Some((x, y)) => match self.automaton.get(x, y) {
+                Cell::Alive => {
+                    self.automaton.set(Cell::Alive, x, y);
                     DrawCell::Dead
-                } else {
-                    self.automaton.set(false, x, y);
+                }
+                Cell::Dead => {
+                    self.automaton.set(Cell::Dead, x, y);
                     DrawCell::Alive
                 }
-            }
+            },
             None => DrawCell::False,
         };
     }
@@ -219,8 +220,8 @@ impl Canvas {
     /// Should be called when mouse moved in drawing mode
     pub fn draw_cell(&mut self, pixel_x: f32, pixel_y: f32) {
         let status = match self.drawing {
-            DrawCell::Alive => Some(true),
-            DrawCell::Dead => Some(false),
+            DrawCell::Alive => Some(Cell::Alive),
+            DrawCell::Dead => Some(Cell::Dead),
             DrawCell::False => None,
         };
         let cell = self.get(pixel_x, pixel_y);

@@ -1,5 +1,7 @@
 #![doc = include_str!("../docs/CELL_AUTOMATA.md")]
-use std::{fmt, iter};
+
+use crate::cell_automata::Cell::*;
+use std::fmt;
 
 /// Moore neighbourhood of range 1
 /// ```text
@@ -31,15 +33,26 @@ pub static NEUMANN_NEIGHBOURHOOD_1: [(i8, i8); 4] = [
     (1, 0),
 ];
 
-#[derive(Clone)]
+#[derive(Clone, Default, PartialEq, Eq)]
 /// Cell of cellular automaton
-pub struct Cell {
-    pub alive: bool,
+pub enum Cell {
+    Alive,
+    #[default]
+    Dead,
+}
+
+impl Cell {
+    fn from(alive: bool) -> Self {
+        if alive { Alive } else { Dead }
+    }
 }
 
 impl fmt::Display for Cell {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let symbol = if self.alive { "[]" } else { "__" };
+        let symbol = match self {
+            Alive => "[]",
+            Dead => "__",
+        };
         write!(f, "{}", symbol)
     }
 }
@@ -49,7 +62,7 @@ pub trait Rule {
     /// Returns an array of coordinates of the cell’s neighbours relative to it.
     fn neighbourhood(&self) -> &'static [(i8, i8)];
     /// Returns `true` if a live cell survives with a number of living neighbors `neighbors`.
-    fn next_state(&self, alive: bool, neighbours: u8) -> bool;
+    fn next_state(&self, cell: &Cell, neighbours: u8) -> Cell;
 }
 
 /// Rules of the Conway's Game of Life
@@ -60,8 +73,11 @@ impl Rule for ConwayRule {
         &MOORE_NEIGHBOURHOOD_1
     }
 
-    fn next_state(&self, alive: bool, neighbours: u8) -> bool {
-        matches!((alive, neighbours), (true, 2) | (true, 3) | (false, 3))
+    fn next_state(&self, cell: &Cell, neighbours: u8) -> Cell {
+        Cell::from(matches!(
+            (cell, neighbours),
+            (Alive, 2) | (Alive, 3) | (Dead, 3)
+        ))
     }
 }
 
@@ -80,10 +96,10 @@ impl Rule for CustomRule {
         self.neighbourhood
     }
 
-    fn next_state(&self, alive: bool, neighbours: u8) -> bool {
-        let survives = alive && self.survive.contains(&neighbours);
-        let born = !alive && self.born.contains(&neighbours);
-        survives || born
+    fn next_state(&self, cell: &Cell, neighbours: u8) -> Cell {
+        let survives = *cell == Alive && self.survive.contains(&neighbours);
+        let born = *cell == Dead && self.born.contains(&neighbours);
+        Cell::from(survives || born)
     }
 }
 
@@ -100,7 +116,7 @@ pub struct CellAutomaton<R: Rule> {
 impl<R: Rule> CellAutomaton<R> {
     /// Returns an automaton with all dead cells.
     pub fn new(width: usize, height: usize, rule: R) -> Self {
-        let grid = Vec::from_iter(iter::repeat_n(Cell { alive: false }, width * height));
+        let grid: Vec<Cell> = vec![Default::default(); width * height];
         CellAutomaton {
             generation: 0,
             width,
@@ -111,15 +127,13 @@ impl<R: Rule> CellAutomaton<R> {
     }
 
     pub fn randomize(&mut self, p: f64) {
-        self.grid.iter_mut().for_each(|x: &mut Cell| {
-            x.alive = rand::random_bool(p);
-        });
+        self.grid = (0..(self.width * self.height))
+            .map(|_| Cell::from(rand::random_bool(p)))
+            .collect();
     }
 
     pub fn clear(&mut self) {
-        for cell in &mut self.grid {
-            cell.alive = false;
-        }
+        self.grid = vec![Default::default(); self.width * self.height];
     }
 
     fn neighbours(&self, x: usize, y: usize) -> impl Iterator<Item = (usize, usize)> {
@@ -143,13 +157,13 @@ impl<R: Rule> CellAutomaton<R> {
             for x in 0..self.width {
                 let neighbours_alive = self
                     .neighbours(x, y)
-                    .filter(|(x, y)| self.get(*x, *y).alive)
+                    .filter(|(x, y)| *self.get(*x, *y) == Alive)
                     .count();
 
-                let current_alive = self.grid[idx].alive;
+                let current_alive = &self.grid[idx];
                 let new_alive = self.rule.next_state(current_alive, neighbours_alive as u8);
 
-                if current_alive != new_alive {
+                if *current_alive != new_alive {
                     changes.push((idx, new_alive));
                 }
                 idx += 1;
@@ -159,8 +173,8 @@ impl<R: Rule> CellAutomaton<R> {
         if changes.is_empty() {
             false
         } else {
-            for (idx, alive) in changes {
-                self.grid[idx].alive = alive;
+            for (idx, new_cell) in changes {
+                self.grid[idx] = new_cell;
             }
             self.generation += 1;
             true
@@ -170,8 +184,8 @@ impl<R: Rule> CellAutomaton<R> {
     pub fn get(&self, x: usize, y: usize) -> &Cell {
         &self.grid[y * self.width + x]
     }
-    pub fn set(&mut self, alive: bool, x: usize, y: usize) {
-        self.grid[y * self.width + x].alive = alive;
+    pub fn set(&mut self, cell: Cell, x: usize, y: usize) {
+        self.grid[y * self.width + x] = cell;
     }
 }
 
