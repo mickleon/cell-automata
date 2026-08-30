@@ -1,6 +1,6 @@
 # cell-automata
 
-A module for simulate cellular automata, in particular Conway's the Game of Life.
+A module for simulate cellular automata, in particular Conway's Game of Life.
 
 ## Example
 

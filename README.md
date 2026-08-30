@@ -1,5 +1,5 @@
 # cell-automata
 
-Graphical application for simulating cellular automata, in particular Conway's the Game of Life written in rust.
+Graphical application written in rust for simulating cellular automata, in particular Conway's Game of Life.
 
 Using `softbuffer` + `winint`.
