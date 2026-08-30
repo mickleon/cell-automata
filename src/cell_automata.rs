@@ -150,6 +150,7 @@ impl<R: Rule> CellAutomaton<R> {
     /// # use cell_automata::cell_automata::{CellAutomaton, ConwayRule};
     /// let mut game_of_life = CellAutomaton::new(10, 10, ConwayRule);
     /// assert!(!game_of_life.step());
+    /// ```
     pub fn step(&mut self) -> bool {
         let mut changes = Vec::with_capacity(self.width * self.height / 4);
         let mut idx = 0;
