@@ -1,4 +1,3 @@
-use log::{debug, error, info, trace, warn};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use cell_automata::app::App;

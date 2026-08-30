@@ -133,9 +133,9 @@ impl<R: Rule> CellAutomaton<R> {
 
     /// Simualate an automaton's next generation. Returns a `false` if the automaton has finished working.
     /// ```
-    /// # use cell_automata::{CellAutomaton, ConwayRule};
-    /// let mut game_of_life = CellAutomaton::from_blank(10, 10, ConwayRule);
-    /// assert!(!game_of_life.next_gen());
+    /// # use cell_automata::cell_automata::{CellAutomaton, ConwayRule};
+    /// let mut game_of_life = CellAutomaton::new(10, 10, ConwayRule);
+    /// assert!(!game_of_life.step());
     pub fn step(&mut self) -> bool {
         let mut changes = Vec::with_capacity(self.width * self.height / 4);
         let mut idx = 0;
