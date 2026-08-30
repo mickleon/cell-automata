@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use log::info;
 use winit::window::Window;
 
 use crate::cell_automata::{CellAutomaton, ConwayRule};
@@ -76,6 +77,7 @@ impl Canvas {
         self.field_left_top_x = (center_x - dest_width / 2.0) as i32;
         self.field_left_top_y = (center_y - dest_height / 2.0) as i32;
         self.resize(width, height);
+        info!("reset transform");
     }
 
     /// Resize canvas
@@ -124,11 +126,13 @@ impl Canvas {
     /// Randomize cells
     pub fn randomize(&mut self) {
         self.automaton.randomize(1.0 / 3.0);
+        info!("randomized")
     }
 
     /// Маке all the cells dead
     pub fn clear(&mut self) {
         self.automaton.clear();
+        info!("clear");
     }
 
     pub fn pan(&mut self, dx: f32, dy: f32) {
@@ -228,12 +232,12 @@ impl Canvas {
     /// Pause simulation
     pub fn sim_pause(&mut self) {
         self.sim_paused = true;
-        println!("Paused");
+        info!("simulation paused");
     }
 
     /// Resume simulation
     pub fn sim_resume(&mut self) {
         self.sim_paused = false;
-        println!("Resumed");
+        info!("simulation resumed");
     }
 }

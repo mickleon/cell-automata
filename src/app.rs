@@ -2,6 +2,7 @@ use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use log::info;
 use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -57,6 +58,7 @@ impl ApplicationHandler for App {
         self.window = Some(window);
         self.surface = Some(surface);
         self.canvas.randomize();
+        info!("app resumed")
     }
 
     fn window_event(
@@ -204,13 +206,13 @@ impl ApplicationHandler for App {
                         // Arrow Up
                         KeyCode::ArrowUp => {
                             if let Some(s) = self.canvas.speed.next() {
-                                println!("Speed: {}x", s);
+                                info!("speed: {}x", s);
                             }
                         }
                         // Arrow Down
                         KeyCode::ArrowDown => {
                             if let Some(s) = self.canvas.speed.prev() {
-                                println!("Speed: {}x", s);
+                                info!("speed: {}x", s);
                             }
                         }
                         _ => {}
