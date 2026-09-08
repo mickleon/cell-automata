@@ -14,7 +14,7 @@ use crate::utils::BidirectionalIter;
 pub struct Grid {
     handle: image::Handle,
     automaton: CellAutomaton<ConwayRule>,
-    speed: BidirectionalIter<'static, f32>,
+    speed_iter: BidirectionalIter<'static, f32>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -32,7 +32,7 @@ impl Default for Grid {
         Self {
             handle: Self::grid_handle(&automaton),
             automaton,
-            speed: BidirectionalIter::new(&SPEED_SCALE).with_pos(
+            speed_iter: BidirectionalIter::new(&SPEED_SCALE).with_pos(
                 SPEED_SCALE
                     .iter()
                     .position(|x| *x == 1.0)
@@ -53,7 +53,7 @@ impl Grid {
                 .spacing(10),
                 row![
                     button("\u{f045f}").on_press(Message::SpeedDown),
-                    text(format!("{}x", self.speed.get()))
+                    text(format!("{}x", *self.speed_iter))
                         .width(50)
                         .height(30)
                         .align_x(Center)
@@ -81,12 +81,12 @@ impl Grid {
                 self.randomize();
             }
             Message::SpeedUp => {
-                self.speed.next();
-                info!("Speed up: {}x", self.speed.get())
+                self.speed_iter.next();
+                info!("Speed up: {}x", *self.speed_iter)
             }
             Message::SpeedDown => {
-                self.speed.prev();
-                info!("Speed down: {}x", self.speed.get())
+                self.speed_iter.prev();
+                info!("Speed down: {}x", *self.speed_iter)
             }
         }
     }
