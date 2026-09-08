@@ -1,9 +1,10 @@
 use std::time::Duration;
 
-use iced::Alignment::Center;
-use iced::widget::image;
-use iced::widget::{Action, Canvas, button, canvas, column, row, text};
-use iced::{Element, Event, Length, Point, Rectangle, Renderer, Subscription, Theme, mouse, time};
+use iced::widget::{Canvas, button, canvas, column, image, row, text};
+use iced::{
+    Alignment, Element, Event, Length, Point, Rectangle, Renderer, Subscription, Theme, mouse,
+    time, widget,
+};
 use log::{debug, info};
 
 use crate::cell_automata::{Cell, CellAutomaton, ConwayRule};
@@ -64,8 +65,8 @@ impl Grid {
                     text(format!("{}x", *self.speed_iter))
                         .width(50)
                         .height(30)
-                        .align_x(Center)
-                        .align_y(Center),
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center),
                     button("\u{f0211}").on_press(Message::SpeedUp),
                 ]
                 .spacing(10),
@@ -85,7 +86,7 @@ impl Grid {
         match message {
             Message::Step => {
                 self.automaton.step();
-                self.handle = Self::grid_handle(&self.automaton);
+                self.handle_update();
             }
             Message::TogglePause => {
                 if self.paused {
@@ -97,11 +98,11 @@ impl Grid {
             Message::Clear => {
                 self.clear();
                 self.pause();
-                self.handle = Self::grid_handle(&self.automaton);
+                self.handle_update();
             }
             Message::Randomize => {
                 self.randomize();
-                self.handle = Self::grid_handle(&self.automaton);
+                self.handle_update();
             }
             Message::SpeedUp => {
                 self.speed_iter.next();
@@ -155,6 +156,9 @@ impl Grid {
         debug!("Grid recalc");
         image::Handle::from_rgba(automaton.width as u32, automaton.height as u32, buf)
     }
+    fn handle_update(&mut self) {
+        self.handle = Self::grid_handle(&self.automaton);
+    }
 }
 
 impl canvas::Program<Message> for Grid {
@@ -166,7 +170,7 @@ impl canvas::Program<Message> for Grid {
         event: &iced::Event,
         _bounds: Rectangle,
         _cursor: mouse::Cursor,
-    ) -> Option<Action<Message>> {
+    ) -> Option<widget::Action<Message>> {
         match event {
             Event::Mouse(mouse::Event::CursorMoved { .. }) => None,
             _ => None,
@@ -185,7 +189,7 @@ impl canvas::Program<Message> for Grid {
         frame.fill_rectangle(Point::ORIGIN, frame.size(), BACKGROUND_COLOR);
         frame.draw_image(
             Rectangle::new(Point::ORIGIN, frame.size()),
-            canvas::Image::new(self.handle.clone()).filter_method(image::FilterMethod::Nearest),
+            canvas::Image::new(&self.handle).filter_method(image::FilterMethod::Nearest),
         );
         vec![frame.into_geometry()]
     }
