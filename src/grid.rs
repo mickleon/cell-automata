@@ -12,6 +12,7 @@ use crate::utils::BidirectionalIter;
 
 #[derive(Clone, PartialEq)]
 pub struct Grid {
+    paused: bool,
     handle: image::Handle,
     automaton: CellAutomaton<ConwayRule>,
     speed_iter: BidirectionalIter<'static, f32>,
@@ -20,6 +21,7 @@ pub struct Grid {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Message {
     Step,
+    TogglePause,
     Clear,
     Randomize,
     SpeedUp,
@@ -29,7 +31,8 @@ pub enum Message {
 impl Default for Grid {
     fn default() -> Self {
         let automaton = CellAutomaton::new(DEFAULT_GRID_HEIGHT, DEFAULT_GRID_WIDTH, ConwayRule);
-        Self {
+        let mut grid = Self {
+            paused: false,
             handle: Self::grid_handle(&automaton),
             automaton,
             speed_iter: BidirectionalIter::new(&SPEED_SCALE).with_pos(
@@ -38,20 +41,25 @@ impl Default for Grid {
                     .position(|x| *x == 1.0)
                     .unwrap_or(SPEED_SCALE.len() / 2),
             ),
-        }
+        };
+        grid.randomize();
+        grid
     }
 }
 
 impl Grid {
     pub fn view(&self) -> Element<'_, Message> {
+        let pause_button_icon = if self.paused {
+            "\u{f040a}"
+        } else {
+            "\u{f03e4}"
+        };
         column![
             row![
                 row![
-                    button("Randomize").on_press(Message::Randomize),
-                    button("Clear").on_press(Message::Clear),
-                ]
-                .spacing(10),
-                row![
+                    button(pause_button_icon)
+                        .width(30)
+                        .on_press(Message::TogglePause),
                     button("\u{f045f}").on_press(Message::SpeedDown),
                     text(format!("{}x", *self.speed_iter))
                         .width(50)
@@ -60,7 +68,12 @@ impl Grid {
                         .align_y(Center),
                     button("\u{f0211}").on_press(Message::SpeedUp),
                 ]
-                .spacing(10)
+                .spacing(10),
+                row![
+                    button("Randomize").on_press(Message::Randomize),
+                    button("Clear").on_press(Message::Clear),
+                ]
+                .spacing(10),
             ]
             .spacing(40)
             .padding(10),
@@ -74,11 +87,21 @@ impl Grid {
                 self.automaton.step();
                 self.handle = Self::grid_handle(&self.automaton);
             }
+            Message::TogglePause => {
+                if self.paused {
+                    self.resume();
+                } else {
+                    self.pause();
+                }
+            }
             Message::Clear => {
                 self.clear();
+                self.pause();
+                self.handle = Self::grid_handle(&self.automaton);
             }
             Message::Randomize => {
                 self.randomize();
+                self.handle = Self::grid_handle(&self.automaton);
             }
             Message::SpeedUp => {
                 self.speed_iter.next();
@@ -93,8 +116,15 @@ impl Grid {
     pub fn theme(&self) -> Theme {
         Theme::CatppuccinMacchiato
     }
-    pub fn timer_sub(&self) -> Subscription<Message> {
-        time::every(Duration::from_millis((1000.0 / GEN_PER_SEC) as u64)).map(|_| Message::Step)
+    pub fn automaton_step_sub(&self) -> Subscription<Message> {
+        if self.paused {
+            return Subscription::none();
+        }
+
+        let gen_per_sec = DEFAULT_GEN_PER_SEC * *self.speed_iter;
+        let millis = (1000.0 / gen_per_sec) as u64;
+
+        time::every(Duration::from_millis(millis)).map(|_| Message::Step)
     }
     fn clear(&mut self) {
         self.automaton.clear();
@@ -103,6 +133,14 @@ impl Grid {
     fn randomize(&mut self) {
         self.automaton.randomize(CEIL_ALIVE_PROBABILITY);
         info!("Grid randomize");
+    }
+    fn pause(&mut self) {
+        self.paused = true;
+        info!("Paused");
+    }
+    fn resume(&mut self) {
+        self.paused = false;
+        info!("Resume");
     }
     fn grid_handle(automaton: &CellAutomaton<ConwayRule>) -> image::Handle {
         let mut buf = Vec::with_capacity(automaton.grid.len() * 4);
