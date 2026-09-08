@@ -10,13 +10,14 @@ use crate::cell_automata::{Cell, CellAutomaton, ConwayRule};
 use crate::config::*;
 use crate::utils::BidirectionalIter;
 
+#[derive(Clone, PartialEq)]
 pub struct Grid {
     handle: image::Handle,
     automaton: CellAutomaton<ConwayRule>,
     speed: BidirectionalIter<'static, f32>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Message {
     Step,
     Clear,

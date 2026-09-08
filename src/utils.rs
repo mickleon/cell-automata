@@ -1,3 +1,4 @@
+#[derive(Clone, Eq, PartialEq)]
 pub struct BidirectionalIter<'a, T> {
     data: &'a [T],
     pos: usize,

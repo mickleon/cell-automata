@@ -41,7 +41,7 @@ pub enum Cell {
     Dead,
 }
 
-impl Cell {
+impl From<bool> for Cell {
     fn from(alive: bool) -> Self {
         if alive { Alive } else { Dead }
     }
@@ -66,6 +66,7 @@ pub trait Rule {
 }
 
 /// Rules of the Conway's Game of Life
+#[derive(Clone, Eq, PartialEq)]
 pub struct ConwayRule;
 
 impl Rule for ConwayRule {
@@ -82,6 +83,7 @@ impl Rule for ConwayRule {
 }
 
 /// Custom rules of cellular automaton
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct CustomRule {
     /// An array of coordinates of the cell’s neighbours relative to it.
     pub neighbourhood: &'static [(i8, i8)],
@@ -104,7 +106,7 @@ impl Rule for CustomRule {
 }
 
 /// Cellular automaton with in size of `width * height`
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct CellAutomaton<R: Rule> {
     pub generation: u64,
     pub width: usize,
