@@ -289,4 +289,18 @@ impl canvas::Program<Message> for Grid {
 
         vec![frame.into_geometry()]
     }
+    fn mouse_interaction(
+        &self,
+        state: &Self::State,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> mouse::Interaction {
+        if state.panning {
+            mouse::Interaction::Grabbing
+        } else if cursor.is_over(bounds) {
+            mouse::Interaction::Grab
+        } else {
+            mouse::Interaction::default()
+        }
+    }
 }
