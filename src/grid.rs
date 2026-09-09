@@ -13,13 +13,17 @@ use crate::utils::BidirectionalIter;
 
 #[derive(Clone, PartialEq)]
 pub struct Grid {
-    paused: bool,
-    handle: image::Handle,
     automaton: CellAutomaton<ConwayRule>,
+    handle: image::Handle,
+
+    scale: f32,
+    translation: iced::Vector,
+
+    paused: bool,
     speed_iter: BidirectionalIter<'static, f32>,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq)]
 pub enum Message {
     Step,
     TogglePause,
@@ -27,24 +31,30 @@ pub enum Message {
     Randomize,
     SpeedUp,
     SpeedDown,
+    Pan(iced::Vector),
+    Zoom {
+        delta: f32,
+        cursor: Point,
+        canvas_size: iced::Size,
+    },
 }
 
 impl Default for Grid {
     fn default() -> Self {
         let automaton = CellAutomaton::new(DEFAULT_GRID_HEIGHT, DEFAULT_GRID_WIDTH, ConwayRule);
-        let mut grid = Self {
-            paused: false,
+        Self {
             handle: Self::grid_handle(&automaton),
             automaton,
+            scale: 1.0,
+            translation: iced::Vector::new(0.0, 0.0),
+            paused: true,
             speed_iter: BidirectionalIter::new(&SPEED_SCALE).with_pos(
                 SPEED_SCALE
                     .iter()
                     .position(|x| *x == 1.0)
                     .unwrap_or(SPEED_SCALE.len() / 2),
             ),
-        };
-        grid.randomize();
-        grid
+        }
     }
 }
 
@@ -86,7 +96,7 @@ impl Grid {
         match message {
             Message::Step => {
                 self.automaton.step();
-                self.handle_update();
+                self.update_handle();
             }
             Message::TogglePause => {
                 if self.paused {
@@ -98,11 +108,11 @@ impl Grid {
             Message::Clear => {
                 self.clear();
                 self.pause();
-                self.handle_update();
+                self.update_handle();
             }
             Message::Randomize => {
                 self.randomize();
-                self.handle_update();
+                self.update_handle();
             }
             Message::SpeedUp => {
                 self.speed_iter.next();
@@ -111,6 +121,16 @@ impl Grid {
             Message::SpeedDown => {
                 self.speed_iter.prev();
                 info!("Speed down: {}x", *self.speed_iter)
+            }
+            Message::Pan(delta) => {
+                self.pan(delta);
+            }
+            Message::Zoom {
+                delta,
+                cursor,
+                canvas_size,
+            } => {
+                self.zoom(delta, cursor, canvas_size);
             }
         }
     }
@@ -143,6 +163,32 @@ impl Grid {
         self.paused = false;
         info!("Resume");
     }
+    fn pan(&mut self, delta: iced::Vector) {
+        self.translation += delta * (1.0 / self.scale);
+        // debug!("Pan: {}, {}", self.translation.x, self.translation.y);
+    }
+    fn zoom(&mut self, delta: f32, cursor: Point, canvas_size: iced::Size) {
+        if delta == 0.0 {
+            return;
+        }
+
+        let zoom_factor = if delta > 0.0 {
+            ZOOM_STEP
+        } else {
+            1.0 / ZOOM_STEP
+        };
+        let old_scale = self.scale;
+        let new_scale = (old_scale * zoom_factor).clamp(MIN_SCALE, MAX_SCALE);
+
+        if new_scale == old_scale {
+            return;
+        }
+
+        let center = Point::new(canvas_size.width / 2.0, canvas_size.height / 2.0);
+        self.translation += (cursor - center) * (1.0 / new_scale - 1.0 / old_scale);
+        self.scale = new_scale;
+        // debug!("Zoom: {}x", self.scale);
+    }
     fn grid_handle(automaton: &CellAutomaton<ConwayRule>) -> image::Handle {
         let mut buf = Vec::with_capacity(automaton.grid.len() * 4);
         for cell in &automaton.grid {
@@ -153,30 +199,71 @@ impl Grid {
             };
             buf.extend_from_slice(&color); // RGBA
         }
-        debug!("Grid recalc");
+        // debug!("Grid rebuild");
         image::Handle::from_rgba(automaton.width as u32, automaton.height as u32, buf)
     }
-    fn handle_update(&mut self) {
+    fn update_handle(&mut self) {
         self.handle = Self::grid_handle(&self.automaton);
     }
 }
 
-impl canvas::Program<Message> for Grid {
-    type State = ();
+#[derive(Default)]
+pub struct GridState {
+    panning: bool,
+    cursor_last: Option<Point>,
+}
 
+impl canvas::Program<Message> for Grid {
+    type State = GridState;
     fn update(
         &self,
-        _state: &mut Self::State,
+        state: &mut Self::State,
         event: &iced::Event,
-        _bounds: Rectangle,
-        _cursor: mouse::Cursor,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
     ) -> Option<widget::Action<Message>> {
         match event {
-            Event::Mouse(mouse::Event::CursorMoved { .. }) => None,
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                state.panning = true;
+                state.cursor_last = None;
+                None
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                state.panning = false;
+                None
+            }
+            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                let pos = cursor.position_in(bounds)?;
+
+                let action = if state.panning {
+                    state
+                        .cursor_last
+                        .map(|last| widget::Action::publish(Message::Pan(pos - last)))
+                } else {
+                    None
+                };
+
+                state.cursor_last = Some(pos);
+                action
+            }
+            Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
+                let zoom_factor = match delta {
+                    mouse::ScrollDelta::Lines { y, .. } => *y,
+                    mouse::ScrollDelta::Pixels { y, .. } => y / 60.0,
+                };
+                let cursor_pos = cursor
+                    .position_in(bounds)
+                    .or(state.cursor_last)
+                    .unwrap_or(Point::ORIGIN);
+                Some(widget::Action::publish(Message::Zoom {
+                    delta: zoom_factor,
+                    cursor: cursor_pos,
+                    canvas_size: bounds.size(),
+                }))
+            }
             _ => None,
         }
     }
-
     fn draw(
         &self,
         _state: &Self::State,
@@ -186,11 +273,20 @@ impl canvas::Program<Message> for Grid {
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
+        let center = iced::Vector::new(bounds.width / 2.0, bounds.height / 2.0);
         frame.fill_rectangle(Point::ORIGIN, frame.size(), BACKGROUND_COLOR);
-        frame.draw_image(
-            Rectangle::new(Point::ORIGIN, frame.size()),
-            canvas::Image::new(&self.handle).filter_method(image::FilterMethod::Nearest),
-        );
+
+        frame.with_save(|frame| {
+            frame.translate(center);
+            frame.scale(self.scale);
+            frame.translate(self.translation - center);
+
+            frame.draw_image(
+                Rectangle::new(Point::ORIGIN, frame.size()),
+                canvas::Image::new(&self.handle).filter_method(image::FilterMethod::Nearest),
+            );
+        });
+
         vec![frame.into_geometry()]
     }
 }

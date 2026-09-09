@@ -13,4 +13,4 @@ pub const SPEED_SCALE: [f32; 6] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0];
 
 pub const MIN_SCALE: f32 = 0.1;
 pub const MAX_SCALE: f32 = 50.0;
-pub const SCALE_STEP: f32 = 1.2;
+pub const ZOOM_STEP: f32 = 1.2;
