@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use iced::widget::{Canvas, button, canvas, column, image, row, text};
 use iced::{
-    Alignment, Element, Event, Length, Point, Rectangle, Renderer, Subscription, Theme, mouse,
-    time, widget,
+    Alignment, Element, Event, Length, Point, Rectangle, Renderer, Size, Subscription, Theme,
+    mouse, time, widget,
 };
 use log::{debug, info};
 
@@ -210,6 +210,7 @@ impl Grid {
 #[derive(Default)]
 pub struct GridState {
     panning: bool,
+    drawing: bool,
     cursor_last: Option<Point>,
 }
 
@@ -230,6 +231,15 @@ impl canvas::Program<Message> for Grid {
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 state.panning = false;
+                None
+            }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                state.drawing = true;
+                state.cursor_last = None;
+                None
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)) => {
+                state.drawing = false;
                 None
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
@@ -276,13 +286,22 @@ impl canvas::Program<Message> for Grid {
         let center = iced::Vector::new(bounds.width / 2.0, bounds.height / 2.0);
         frame.fill_rectangle(Point::ORIGIN, frame.size(), BACKGROUND_COLOR);
 
+        let grid_size = Size::new(self.automaton.width as f32, self.automaton.height as f32);
+        let fit_scale =
+            (frame.size().width / grid_size.width).min(frame.size().height / grid_size.height);
+        let image_size = Size::new(grid_size.width * fit_scale, grid_size.height * fit_scale);
+        let image_origin = Point::new(
+            (frame.size().width - image_size.width) / 2.0,
+            (frame.size().height - image_size.height) / 2.0,
+        );
+
         frame.with_save(|frame| {
             frame.translate(center);
             frame.scale(self.scale);
             frame.translate(self.translation - center);
 
             frame.draw_image(
-                Rectangle::new(Point::ORIGIN, frame.size()),
+                Rectangle::new(image_origin, image_size),
                 canvas::Image::new(&self.handle).filter_method(image::FilterMethod::Nearest),
             );
         });
@@ -297,6 +316,8 @@ impl canvas::Program<Message> for Grid {
     ) -> mouse::Interaction {
         if state.panning {
             mouse::Interaction::Grabbing
+        } else if state.drawing {
+            mouse::Interaction::Pointer
         } else if cursor.is_over(bounds) {
             mouse::Interaction::Grab
         } else {
