@@ -4,7 +4,7 @@ pub const BACKGROUND_COLOR: Color = Color::BLACK;
 pub const DEAD_COLOR: [u8; 4] = [255, 255, 255, 255];
 pub const ALIVE_COLOR: [u8; 4] = [0, 0, 0, 255];
 
-pub const DEFAULT_GRID_WIDTH: usize = 200;
+pub const DEFAULT_GRID_WIDTH: usize = 300;
 pub const DEFAULT_GRID_HEIGHT: usize = 200;
 pub const CEIL_ALIVE_PROBABILITY: f64 = 1.0 / 3.0;
 

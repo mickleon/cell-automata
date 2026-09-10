@@ -52,7 +52,7 @@ pub enum Message {
 
 impl Default for Grid {
     fn default() -> Self {
-        let automaton = CellAutomaton::new(DEFAULT_GRID_HEIGHT, DEFAULT_GRID_WIDTH, ConwayRule);
+        let automaton = CellAutomaton::new(DEFAULT_GRID_WIDTH, DEFAULT_GRID_HEIGHT, ConwayRule);
         Self {
             handle: Self::grid_handle(&automaton),
             automaton,
