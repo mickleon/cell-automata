@@ -5,7 +5,7 @@ use iced::{
     Alignment, Element, Event, Length, Point, Rectangle, Renderer, Size, Subscription, Theme,
     mouse, time, widget,
 };
-use log::{debug, info};
+use log::{debug, error, info};
 
 use crate::cell_automata::{Cell, CellAutomaton, ConwayRule};
 use crate::config::*;
@@ -23,6 +23,13 @@ pub struct Grid {
     speed_iter: BidirectionalIter<'static, f32>,
 }
 
+struct ViewTransform {
+    fit_scale: f32,
+    image_size: Size,
+    image_origin: Point,
+    center: iced::Vector,
+}
+
 #[derive(Clone, PartialEq)]
 pub enum Message {
     Step,
@@ -36,6 +43,10 @@ pub enum Message {
         delta: f32,
         cursor: Point,
         canvas_size: iced::Size,
+    },
+    Draw {
+        coord: (usize, usize),
+        cell: Cell,
     },
 }
 
@@ -95,7 +106,9 @@ impl Grid {
     pub fn update(&mut self, message: Message) {
         match message {
             Message::Step => {
-                self.automaton.step();
+                if !self.automaton.step() {
+                    self.pause();
+                }
                 self.update_handle();
             }
             Message::TogglePause => {
@@ -131,6 +144,21 @@ impl Grid {
                 canvas_size,
             } => {
                 self.zoom(delta, cursor, canvas_size);
+            }
+            Message::Draw { coord, cell } => {
+                let (x, y) = coord;
+                // debug!("Draw {}, {}: {:?}", coord.0, coord.1, cell);
+                match self.automaton.set(cell, x, y) {
+                    Ok(_) => {
+                        self.update_handle();
+                    }
+                    Err(_) => {
+                        error!(
+                            "Failed to draw a cell ({}, {}) because of out of bounds",
+                            x, y
+                        );
+                    }
+                }
             }
         }
     }
@@ -205,12 +233,49 @@ impl Grid {
     fn update_handle(&mut self) {
         self.handle = Self::grid_handle(&self.automaton);
     }
+    fn view_transform(&self, bounds: Rectangle) -> ViewTransform {
+        let center = iced::Vector::new(bounds.width / 2.0, bounds.height / 2.0);
+        let grid_size = Size::new(self.automaton.width as f32, self.automaton.height as f32);
+        let fit_scale = (bounds.width / grid_size.width).min(bounds.height / grid_size.height);
+        let image_size = Size::new(grid_size.width * fit_scale, grid_size.height * fit_scale);
+        let image_origin = Point::new(
+            (bounds.width - image_size.width) / 2.0,
+            (bounds.height - image_size.height) / 2.0,
+        );
+        ViewTransform {
+            fit_scale,
+            image_size,
+            image_origin,
+            center,
+        }
+    }
+    fn screen_to_cell(&self, point: Point, bounds: Rectangle) -> Option<(usize, usize)> {
+        let vt = self.view_transform(bounds);
+
+        let mut v = iced::Vector::new(point.x - vt.center.x, point.y - vt.center.y);
+        v /= self.scale;
+        v += vt.center - self.translation;
+        let ix = (v.x - vt.image_origin.x) / vt.fit_scale;
+        let iy = (v.y - vt.image_origin.y) / vt.fit_scale;
+
+        if ix < 0.0 || iy < 0.0 {
+            return None;
+        };
+
+        let x = ix as usize;
+        let y = iy as usize;
+        if x < self.automaton.width && y < self.automaton.height {
+            Some((x, y))
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct GridState {
     panning: bool,
-    drawing: bool,
+    drawing: Option<Cell>,
     cursor_last: Option<Point>,
 }
 
@@ -227,6 +292,7 @@ impl canvas::Program<Message> for Grid {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 state.panning = true;
                 state.cursor_last = None;
+                state.drawing = None;
                 None
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
@@ -234,12 +300,24 @@ impl canvas::Program<Message> for Grid {
                 None
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
-                state.drawing = true;
+                let point = cursor.position_in(bounds)?;
+                let (x, y) = self.screen_to_cell(point, bounds)?;
+                let clicked_cell = self.automaton.get_unchecked(x, y);
+                let new_cell = match clicked_cell {
+                    Cell::Alive => Cell::Dead,
+                    Cell::Dead => Cell::Alive,
+                };
+
+                state.drawing = Some(new_cell);
                 state.cursor_last = None;
-                None
+
+                Some(widget::Action::publish(Message::Draw {
+                    coord: (x, y),
+                    cell: new_cell,
+                }))
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)) => {
-                state.drawing = false;
+                state.drawing = None;
                 None
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
@@ -249,6 +327,9 @@ impl canvas::Program<Message> for Grid {
                     state
                         .cursor_last
                         .map(|last| widget::Action::publish(Message::Pan(pos - last)))
+                } else if let Some(cell) = state.drawing {
+                    self.screen_to_cell(pos, bounds)
+                        .map(|coord| widget::Action::publish(Message::Draw { coord, cell }))
                 } else {
                     None
                 };
@@ -261,10 +342,12 @@ impl canvas::Program<Message> for Grid {
                     mouse::ScrollDelta::Lines { y, .. } => *y,
                     mouse::ScrollDelta::Pixels { y, .. } => y / 60.0,
                 };
+
                 let cursor_pos = cursor
                     .position_in(bounds)
                     .or(state.cursor_last)
                     .unwrap_or(Point::ORIGIN);
+
                 Some(widget::Action::publish(Message::Zoom {
                     delta: zoom_factor,
                     cursor: cursor_pos,
@@ -283,25 +366,17 @@ impl canvas::Program<Message> for Grid {
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
-        let center = iced::Vector::new(bounds.width / 2.0, bounds.height / 2.0);
+        let vt = self.view_transform(bounds);
+
         frame.fill_rectangle(Point::ORIGIN, frame.size(), BACKGROUND_COLOR);
 
-        let grid_size = Size::new(self.automaton.width as f32, self.automaton.height as f32);
-        let fit_scale =
-            (frame.size().width / grid_size.width).min(frame.size().height / grid_size.height);
-        let image_size = Size::new(grid_size.width * fit_scale, grid_size.height * fit_scale);
-        let image_origin = Point::new(
-            (frame.size().width - image_size.width) / 2.0,
-            (frame.size().height - image_size.height) / 2.0,
-        );
-
         frame.with_save(|frame| {
-            frame.translate(center);
+            frame.translate(vt.center);
             frame.scale(self.scale);
-            frame.translate(self.translation - center);
+            frame.translate(self.translation - vt.center);
 
             frame.draw_image(
-                Rectangle::new(image_origin, image_size),
+                Rectangle::new(vt.image_origin, vt.image_size),
                 canvas::Image::new(&self.handle).filter_method(image::FilterMethod::Nearest),
             );
         });
@@ -316,8 +391,8 @@ impl canvas::Program<Message> for Grid {
     ) -> mouse::Interaction {
         if state.panning {
             mouse::Interaction::Grabbing
-        } else if state.drawing {
-            mouse::Interaction::Pointer
+        } else if state.drawing.is_some() {
+            mouse::Interaction::Idle
         } else if cursor.is_over(bounds) {
             mouse::Interaction::Grab
         } else {
