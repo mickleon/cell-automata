@@ -33,7 +33,7 @@ pub static NEUMANN_NEIGHBOURHOOD_1: [(i8, i8); 4] = [
     (1, 0),
 ];
 
-#[derive(Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// Cell of cellular automaton
 pub enum Cell {
     Alive,
@@ -115,6 +115,9 @@ pub struct CellAutomaton<R: Rule> {
     rule: R,
 }
 
+#[derive(Debug, Clone)]
+pub struct CellNotInBoundsError;
+
 impl<R: Rule> CellAutomaton<R> {
     /// Returns an automaton with all dead cells.
     pub fn new(width: usize, height: usize, rule: R) -> Self {
@@ -160,7 +163,7 @@ impl<R: Rule> CellAutomaton<R> {
             for x in 0..self.width {
                 let neighbours_alive = self
                     .neighbours(x, y)
-                    .filter(|(x, y)| *self.get(*x, *y) == Alive)
+                    .filter(|(x, y)| self.get_unchecked(*x, *y) == Alive)
                     .count();
 
                 let current_alive = &self.grid[idx];
@@ -184,11 +187,23 @@ impl<R: Rule> CellAutomaton<R> {
         }
     }
 
-    pub fn get(&self, x: usize, y: usize) -> &Cell {
-        &self.grid[y * self.width + x]
+    pub fn get(&self, x: usize, y: usize) -> Option<Cell> {
+        if x < self.width && y < self.height {
+            Some(self.grid[y * self.width + x])
+        } else {
+            None
+        }
     }
-    pub fn set(&mut self, cell: Cell, x: usize, y: usize) {
-        self.grid[y * self.width + x] = cell;
+    pub fn get_unchecked(&self, x: usize, y: usize) -> Cell {
+        self.grid[y * self.width + x]
+    }
+    pub fn set(&mut self, cell: Cell, x: usize, y: usize) -> Result<(), CellNotInBoundsError> {
+        if x < self.width && y < self.height {
+            self.grid[y * self.width + x] = cell;
+            Ok(())
+        } else {
+            Err(CellNotInBoundsError)
+        }
     }
 }
 
