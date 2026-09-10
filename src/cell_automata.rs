@@ -33,7 +33,7 @@ pub static NEUMANN_NEIGHBOURHOOD_1: [(i8, i8); 4] = [
     (1, 0),
 ];
 
-#[derive(Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// Cell of cellular automaton
 pub enum Cell {
     Alive,
@@ -41,7 +41,7 @@ pub enum Cell {
     Dead,
 }
 
-impl Cell {
+impl From<bool> for Cell {
     fn from(alive: bool) -> Self {
         if alive { Alive } else { Dead }
     }
@@ -66,6 +66,7 @@ pub trait Rule {
 }
 
 /// Rules of the Conway's Game of Life
+#[derive(Clone, Eq, PartialEq)]
 pub struct ConwayRule;
 
 impl Rule for ConwayRule {
@@ -82,6 +83,7 @@ impl Rule for ConwayRule {
 }
 
 /// Custom rules of cellular automaton
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct CustomRule {
     /// An array of coordinates of the cell’s neighbours relative to it.
     pub neighbourhood: &'static [(i8, i8)],
@@ -104,7 +106,7 @@ impl Rule for CustomRule {
 }
 
 /// Cellular automaton with in size of `width * height`
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct CellAutomaton<R: Rule> {
     pub generation: u64,
     pub width: usize,
@@ -112,6 +114,9 @@ pub struct CellAutomaton<R: Rule> {
     pub grid: Vec<Cell>,
     rule: R,
 }
+
+#[derive(Debug, Clone)]
+pub struct CellNotInBoundsError;
 
 impl<R: Rule> CellAutomaton<R> {
     /// Returns an automaton with all dead cells.
@@ -158,7 +163,7 @@ impl<R: Rule> CellAutomaton<R> {
             for x in 0..self.width {
                 let neighbours_alive = self
                     .neighbours(x, y)
-                    .filter(|(x, y)| *self.get(*x, *y) == Alive)
+                    .filter(|(x, y)| self.get_unchecked(*x, *y) == Alive)
                     .count();
 
                 let current_alive = &self.grid[idx];
@@ -182,11 +187,23 @@ impl<R: Rule> CellAutomaton<R> {
         }
     }
 
-    pub fn get(&self, x: usize, y: usize) -> &Cell {
-        &self.grid[y * self.width + x]
+    pub fn get(&self, x: usize, y: usize) -> Option<Cell> {
+        if x < self.width && y < self.height {
+            Some(self.grid[y * self.width + x])
+        } else {
+            None
+        }
     }
-    pub fn set(&mut self, cell: Cell, x: usize, y: usize) {
-        self.grid[y * self.width + x] = cell;
+    pub fn get_unchecked(&self, x: usize, y: usize) -> Cell {
+        self.grid[y * self.width + x]
+    }
+    pub fn set(&mut self, cell: Cell, x: usize, y: usize) -> Result<(), CellNotInBoundsError> {
+        if x < self.width && y < self.height {
+            self.grid[y * self.width + x] = cell;
+            Ok(())
+        } else {
+            Err(CellNotInBoundsError)
+        }
     }
 }
 

@@ -1,6 +1,15 @@
+#[derive(Clone, Eq, PartialEq)]
 pub struct BidirectionalIter<'a, T> {
     data: &'a [T],
     pos: usize,
+}
+
+impl<'a, T> std::ops::Deref for BidirectionalIter<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data[self.pos]
+    }
 }
 
 impl<'a, T> BidirectionalIter<'a, T> {
@@ -18,8 +27,7 @@ impl<'a, T> BidirectionalIter<'a, T> {
     pub fn next(&mut self) -> Option<&'a T> {
         if self.pos < self.data.len() - 1 {
             self.pos += 1;
-            let item = &self.data[self.pos];
-            Some(item)
+            Some(&self.data[self.pos])
         } else {
             None
         }
@@ -32,8 +40,5 @@ impl<'a, T> BidirectionalIter<'a, T> {
         } else {
             None
         }
-    }
-    pub fn get(&self) -> &T {
-        &self.data[self.pos]
     }
 }
